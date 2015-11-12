@@ -22,6 +22,13 @@ function changeTarget(editor, config) {
   var dicUrl = config.dictionary_url;
   editor.setDictionaryUrl(dicUrl);
 
+  // Set url of the endpoint.
+  editor.setEndpoint(config.endpoint_url)
+  // Use proxy, because the endpoint for biogateway does not allow cross-origin request.
+  if(config.name === 'biogateway'){
+    editor.setEndpoint(config.endpoint_url, '/proxy')
+  }
+
   // to setup sample queries
   var sample_queries = config.sample_queries,
       sampleQueries = document.querySelector('#sample_queries');
