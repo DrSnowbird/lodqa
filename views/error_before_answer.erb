@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>LODQA : Question-Answering over Linked Open Data</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"/>
+        <link href="css/lodqa.css" media="screen" rel="stylesheet" type="text/css">
+        <link href="css/answer.css" media="screen" rel="stylesheet" type="text/css">
+        <link href="https://use.fontawesome.com/releases/v5.0.8/css/all.css" rel="stylesheet">
+
+        <style media="screen">
+            .answer-index {
+                margin: 40px 10px;
+            }
+            .error_message {
+                color: red;
+            }
+
+        </style>
+    </head>
+    <body>
+        <div id="dashboard" class="dashboard frame">
+            <div id="header">
+              <%= erb :'dashboard/header' %>
+              <div id="nlq">
+                <%= erb :'dashboard/nlq' %>
+              </div>
+              <%= erb :'dashboard/main-nav' %>
+            </div>
+            <div class="answer-index">
+                <div class="error_message">
+                    <%= @message %>
+                </div>
+            </div>
+        </div>
+    </body>
+    <script src="js/index.js"></script>
+</html>

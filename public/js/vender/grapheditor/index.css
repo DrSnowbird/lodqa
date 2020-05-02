@@ -1,19 +1,39 @@
 /* node editor */
-.node-editor label {
-  font-size: 13px;
+.node-editor {
+  display: flex;
+  justify-content: flex-end;
+  line-height: 2em;
 }
-.node-editor .url {
-  width: 260px;
+.node-editor button {
+  background-color: #f9f9f9;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 0.25em;
+  height: 20px;
+  margin: 0;
+  min-width: 26px;
+  padding: 0 6px;
+  font-size: 11px;
 }
-.node-editor .button {
-  box-shadow: 0 0 15px 4px #42ffb2;
-  -webkit-transition: box-shadow 0.3s ease-in;
-  -moz-transition: box-shadow 0.3s ease-in;
-  -o-transition: box-shadow 0.3s ease-in;
-  transition: box-shadow 0.3s ease-in;
+.icon {
+  color: black;
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
 }
-.node-editor .button:disabled {
-  box-shadow: none;
+.icon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.icon--cannot_selectable {
+  color: black;
+  cursor: default;
+}
+.icon--cannot_selectable:hover {
+  background-color: transparent;
+  border-radius: 0;
 }
 /* graph */
 .jsPlumb-container {
@@ -22,9 +42,20 @@
   height: 150px;
   position: relative;
   width: 100%;
-  max-width: 600px;
   /* graph node */
   /* graph edge */
+}
+.jsPlumb-container .placeholder {
+  color: #aaa;
+}
+.jsPlumb-container .focusIcon {
+  display: none;
+}
+.jsPlumb-container .editIcon {
+  display: none;
+}
+.jsPlumb-container .deleteIcon {
+  display: none;
 }
 .jsPlumb-container .node {
   border: 1px solid #2e6f9a;
@@ -36,6 +67,7 @@
   opacity: 0.8;
   padding: 16px;
   position: absolute;
+  min-width: 6em;
   max-width: 10em;
   -webkit-transition: background-color 0.25s ease-in;
   -moz-transition: background-color 0.25s ease-in;
@@ -54,10 +86,99 @@
   background-color: #fcc3cd;
   border-color: #ffc0cb;
 }
+.jsPlumb-container .node .name {
+  display: inline;
+}
+.jsPlumb-container .node .editInput {
+  display: none;
+}
+.jsPlumb-container .node .focusIcon {
+  left: -3px;
+}
+.jsPlumb-container .node.focus .focusIcon {
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
+  color: black;
+  cursor: default;
+}
+.jsPlumb-container .node.focus .focusIcon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.jsPlumb-container .node.focus .focusIcon:hover {
+  background-color: transparent;
+  border-radius: 0;
+}
 .jsPlumb-container .node.selected {
   background-color: #df2020;
-  border-color: #ff0000;
+  border-color: #f00;
   color: white;
+}
+.jsPlumb-container .node.selected .focusIcon {
+  color: black;
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
+  color: gray;
+}
+.jsPlumb-container .node.selected .focusIcon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.jsPlumb-container .node.selected.focus .focusIcon {
+  color: black;
+  cursor: default;
+}
+.jsPlumb-container .node.selected.focus .focusIcon:hover {
+  background-color: transparent;
+  border-radius: 0;
+}
+.jsPlumb-container .node.selected .editIcon {
+  color: black;
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
+  right: 15px;
+}
+.jsPlumb-container .node.selected .editIcon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.jsPlumb-container .node.selected .deleteIcon {
+  color: black;
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
+  right: -4px;
+}
+.jsPlumb-container .node.selected .deleteIcon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.jsPlumb-container .node.selected.editing {
+  max-width: initial;
+}
+.jsPlumb-container .node.selected.editing .name {
+  display: none;
+}
+.jsPlumb-container .node.selected.editing .editInput {
+  display: block;
+}
+.jsPlumb-container .node.selected.editing .editIcon {
+  display: none;
 }
 .jsPlumb-container .nodeDragHover {
   border: 2px solid orange;
@@ -79,96 +200,146 @@
 .jsPlumb-container .sourcePoint:hover {
   box-shadow: 0 0 6px black;
 }
-.jsPlumb-container .edgeLabel.hover {
-  background-color: #fcc3cd;
-  border-color: #ffc0cb;
-}
-.jsPlumb-container .edgeLabel._jsPlumb_hover {
-  background-color: #fcc3cd;
-  border-color: #ffc0cb;
-}
-.jsPlumb-container .edgeLabel.selected {
-  background-color: #df2020;
-  border-color: #ff0000;
-  color: white;
-}
-.jsPlumb-container ._jsPlumb_source_hover {
-  background-color: #fcc3cd;
-  border-color: #ffc0cb;
-}
-.jsPlumb-container ._jsPlumb_target_hover {
-  background-color: #fcc3cd;
-  border-color: #ffc0cb;
-}
 .jsPlumb-container .edgeLabel {
+  font-size: 11px;
+}
+.jsPlumb-container .edgeLabel .name {
   background-color: white;
   border: 1px solid #346789;
   border-color: orange;
   border-radius: 0.5em;
   cursor: pointer;
-  font-size: 11px;
   opacity: 0.8;
   padding: 0.3em;
 }
-.jsPlumb-container ._jsPlumb_connector path {
+.jsPlumb-container .edgeLabel.no-text .name {
+  display: none;
+}
+.jsPlumb-container .edgeLabel.hover .name {
+  background-color: #fcc3cd;
+  border-color: #ffc0cb;
+}
+.jsPlumb-container .edgeLabel.selected .name {
+  background-color: #df2020;
+  border-color: #f00;
+  color: white;
+}
+.jsPlumb-container .edgeLabel.selected .editIcon {
+  color: black;
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
+  right: 15px;
+}
+.jsPlumb-container .edgeLabel.selected .editIcon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.jsPlumb-container .edgeLabel.selected .deleteIcon {
+  color: black;
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
+  right: -4px;
+}
+.jsPlumb-container .edgeLabel.selected .deleteIcon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.jsPlumb-container .edgeEdit .deleteIcon {
+  color: black;
+  cursor: pointer;
+  display: block;
+  padding: 0 5px;
+  position: absolute;
+  text-align: center;
+  top: -18px;
+  font-size: 11px;
+  right: -4px;
+}
+.jsPlumb-container .edgeEdit .deleteIcon:hover {
+  background-color: lightgrey;
+  border-radius: 2px;
+}
+.jsPlumb-container .jtk-connector path {
   cursor: pointer;
 }
-.jsPlumb-container ._jsPlumb_connector.selected path:nth-child(2) {
-  stroke: #ff0000;
-}
-.jsPlumb-container ._jsPlumb_connector.selected path:nth-child(3) {
-  stroke: #ff0000;
-  fill: #ff0000;
-}
-.jsPlumb-container ._jsPlumb_connector.hover path:nth-child(2) {
+.jsPlumb-container .jtk-connector.hover path:nth-child(2) {
   stroke: #ffc0cb;
 }
-.jsPlumb-container ._jsPlumb_connector.hover path:nth-child(3) {
+.jsPlumb-container .jtk-connector.hover path:nth-child(3) {
   stroke: #ffc0cb;
   fill: #ffc0cb;
 }
-.jsPlumb-container ._jsPlumb_hover path:nth-child(2) {
-  stroke: #ffc0cb;
+.jsPlumb-container .jtk-connector.selected path:nth-child(2) {
+  stroke: #f00;
 }
-.jsPlumb-container ._jsPlumb_hover path:nth-child(3) {
-  stroke: #ffc0cb;
-  fill: #ffc0cb;
+.jsPlumb-container .jtk-connector.selected path:nth-child(3) {
+  stroke: #f00;
+  fill: #f00;
 }
-.jsPlumb-container ._jsPlumb_endpoint {
+.jsPlumb-container .jtk-endpoint {
   cursor: pointer;
 }
 /* node-tabel */
+.table {
+  border: solid 1px #cccccc;
+  min-height: 60px;
+}
+.table button {
+  background-color: #f9f9f9;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 0.25em;
+  height: 20px;
+  margin: 0;
+  min-width: 26px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.table input {
+  box-sizing: border-box;
+  height: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+.table .placeholder {
+  color: #aaa;
+}
 .table table {
   border-collapse: collapse;
   font-size: 0.9em;
   margin-right: 10px;
   width: 100%;
-  min-width: 300px;
-  max-width: 600px;
+  min-width: 520px;
 }
 .table table tr {
   height: 30px;
+}
+.table table tr.hover td {
+  background-color: #ffc0cb;
 }
 .table table tr.selected td {
   color: white;
   background-color: #df2020;
 }
-.table table tr.hover td {
-  background-color: #ffc0cb;
-}
 .table table th {
   border: 1px solid #b9b9b9;
   padding: 3px;
-  background-color: #ddd;
+  background-color: rgba(92, 150, 188, 0.9);
   color: #333;
 }
 .table table th.focus {
-  width: 16px;
+  width: 26px;
 }
-.table table th.label {
+.table table th.text {
   width: 180px;
 }
-.table table th.label .title {
+.table table th.text .title {
   display: inline-block;
   width: 96px;
 }
@@ -179,24 +350,33 @@
 }
 .table table td.focus {
   text-align: center;
+  width: 26px;
 }
-.table table td.label {
+.table table td.text {
   text-align: center;
-  vertical-align: top;
+  vertical-align: middle;
+  width: 180px;
 }
-.table table td.label input {
-  width: 88px;
+.table table td.text input {
+  width: 96px;
 }
-.table table td.url .term.hover input.term {
+.table table td.terms .term [type="checkbox"] {
+  font-size: 16px;
+  margin: 0 3px;
+  vertical-align: text-top;
+}
+.table table td.terms .term.hover input.term {
   background-color: rgba(255, 0, 0, 0.5);
   text-decoration: line-through;
 }
-.table table td.url input.term {
-  width: 80%;
+.table table td.terms input.term {
+  width: calc(100% - 56px);
   box-sizing: border-box;
 }
-.table table td.url .add [type="checkbox"] {
+.table table td.terms .add [type="checkbox"] {
+  margin: 0 3px;
   visibility: hidden;
+  width: 13px;
 }
 .hidden {
   display: none;

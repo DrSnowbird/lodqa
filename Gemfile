@@ -1,15 +1,16 @@
 source 'https://rubygems.org'
+ruby '2.5.1'
 
-gem 'thin'
+gem 'puma'
 gem 'erubis'
 
 gem 'rest-client'
 gem 'sinatra'
+gem 'faye-websocket'
 gem 'sparql-client'
-gem 'sinatra-websocket'
-gem 'ruby-graphviz'
 
 gem 'app_config'
+gem 'sendgrid-ruby'
 
 group :test do
 	gem 'rack-test'

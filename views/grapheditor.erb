@@ -1,36 +1,79 @@
-<h1>Graph Editor
-<i title="2. Edit the graph generated from a natural language query, or compose a new graph from scratch." class="help-icon fa fa-info-circle"></i>
-</h1>
-<div id="lodqa-pgp" class="hidden"><%= @pgp.to_json %></div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>LODQA : Question-Answering over Linked Open Data</title>
+  <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1" />
+  <link href="css/lodqa.css" media="screen" rel="stylesheet" type="text/css">
+  <link href="css/progress-bar.css" media="screen" rel="stylesheet" type="text/css">
+  <link href="css/grapheditor.css" media="screen" rel="stylesheet" type="text/css">
+  <link href="https://use.fontawesome.com/releases/v5.0.8/css/all.css" rel="stylesheet">
+  <link href="js/vender/grapheditor/index.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.34.0/codemirror.min.css" rel="stylesheet">
 
-<div class="node-editor">
-    <div class="input-node">
-        <input class="label" placeholder="New Node"></input>
-        <button class="button" disabled title="create"><i class="fa fa-plus"></i></button> to be connected as
-        <label>
-            <i>chain</i><input checked/ name="create-edge" type="radio" value="chain"></label> or
-        <label>
-            <i>star</i><input name="create-edge" type="radio" value="star"/></label>.
+  <script src="js/vender/Springy/springy.js"></script>
+  <script src="js/vender/jQuery/dist/jquery.min.js"></script>
+  <script src="js/vender/eventemitter2/lib/eventemitter2.js"></script>
+  <script src="js/vender/Springy/springyui.js"></script>
+  <script type="text/javascript" src="js/unhandled-error-message.js"></script>
+</head>
+<body>
+
+<div id="dashboard" class="dashboard frame">
+  <div id="header">
+  	<%= erb :'dashboard/header' %>
+    <div class="target-display">
+      <span id="target-display">@<%= @target %></span>
     </div>
-    <div class="edit-edge hidden">
-        <label>Delete Edge</label>
-        <button class="delete-button" title="delete"><i class="fa fa-trash-o"></i></button>
+    <nav id="main-nav">
+      <ul>
+        <% if session[:email] %>
+          <li><a href="/dialogs">Dialogs</a></li>
+        <% end %>
+        <li><a id="mode-switch" href="#">Simple</a></li>
+        <li><a href="<%= settings.target_db %>">Targets</a></li>
+        <li><a href="http://www.lodqa.org/docs/intro/">Doc</a></li>
+        <li><a href="https://github.com/lodqa/lodqa">Github</a></li>
+        <% unless session[:email] %>
+          <li><a href="<%= Lodqa::Oauth::EXPERT[:login] %>">Login</a></li>
+        <% else %>
+          <li><a href="<%= Lodqa::Oauth::EXPERT[:logout] %>">Logout</a></li>
+        <% end %>
+      </ul>
+    </nav>
+    <div id="target-box">
+      <select name="target" id="target">
+        <% @targets.each do |t| %>
+          <% if t == @target %>
+            <option value="<%= t %>" selected="selected"><%= t %></option>
+          <% else %>
+            <option value="<%= t %>"><%= t %></option>
+          <% end %>
+        <% end %>
+      </select>
     </div>
-    <span class="warn"></span>
+  </div>
+
+  <div id="nlq">
+      <h1>Step 1. Enter a
+      <i>query</i>
+      and parse it.</h1>
+
+  	<%= erb :'dashboard/nlq-for-grapheditor' %>
+  </div>
+
+  <div id="examples" class="examples examples--hidden frame">
+  	<%= erb :examples %>
+  </div>
+
+  <%= erb :graph %>
 </div>
-<div class="jsPlumb-container"></div>
-<div class="pgp hidden"></div>
 
-<h1>Term Finder
-<i title="3. Find the terms corresponding to the parts of your graph. Do not forget to choose the focus node of your query." class="help-icon fa fa-info-circle"></i>
-</h1>
-
-<div class="table">
-    <div class="node-table"></div>
+<div id="results" class="results results--hidden frame">
+	<%= erb :results %>
 </div>
-<div class="mappings hidden"></div>
 
-<script src="js/vender/jsplumb/dist/js/dom.jsPlumb-1.7.8.js"></script>
-<script src="js/vender/js-polyfills/keyboard.js"></script>
-<script src="js/vender/Element.closest/closest.js"></script>
-<script src="js/vender/grapheditor/index.js"></script>
+<div id="lodqa-messages"></div>
+
+<script src="js/grapheditor.js"></script>
+</body>
+</html>

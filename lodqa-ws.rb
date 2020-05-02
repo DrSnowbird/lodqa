@@ -1,10 +1,23 @@
 #!/usr/bin/env ruby
 require 'sinatra/base'
 require 'rest_client'
-require 'sinatra-websocket'
+require 'faye/websocket'
 require 'erb'
 require 'lodqa'
+require 'lodqa/bs_client'
+require 'term/finder'
 require 'json'
+require 'open-uri'
+require 'cgi/util'
+require 'uri'
+require 'logger/async'
+require 'logger/logger'
+require 'lodqa/source_channel'
+require 'lodqa/sparqls_count'
+require 'lodqa/oauth'
+require 'lodqa/configuration'
+require 'lodqa/sources'
+require 'lodqa/pgp_factory'
 
 class LodqaWS < Sinatra::Base
 	configure do
@@ -13,12 +26,11 @@ class LodqaWS < Sinatra::Base
 		set :server, 'thin'
 		set :target_db, 'http://targets.lodqa.org/targets'
 		# set :target_db, 'http://localhost:3000/targets'
-	end
+		set :url_forwading_db, ENV['URL_FORWARDING_DB'] || 'http://urilinks.lodqa.org'
 
-	configure :production do
-		logger = Logger.new(settings.root + "/log/production.log")
+		enable :sessions
 		enable :logging
-		logger.level = Logger::INFO
+		use Rack::CommonLogger, Logger.new("#{settings.root}/log/#{settings.environment}.log", 10, 10 * 1024 * 1024)
 	end
 
 	before do
@@ -27,7 +39,7 @@ class LodqaWS < Sinatra::Base
 			begin
 				json_params = JSON.parse body unless body.empty?
 				json_params = {'keywords' => json_params} if json_params.is_a? Array
-			rescue => e
+			rescue
 				@error_message = 'ill-formed JSON string'
 			end
 
@@ -36,43 +48,185 @@ class LodqaWS < Sinatra::Base
 	end
 
 	get '/' do
-		@config  = get_config(params)
-		@targets = get_targets
+		begin
+			set_query_instance_variable
 
-		erb :index
+			applicants = applicants_dataset(params[:target])
+			@sample_queries = sample_queries_for applicants, params
+
+			@config = dataset_config_of params[:target] if present_in? params, :target
+			erb :index
+		rescue Lodqa::SourceError
+			[503, 'Failed to connect the Target Database.']
+		end
 	end
 
-	get '/graphicator' do
-		@config = get_config(params)
+	get '/simple/login' do
+		session[:mode_before_login] = 'simple'
+		redirect Lodqa::Oauth::URL_AUTH
+	end
+
+	# メールアドレスをセッション情報として保持する
+	# 　画面のLoginリンク押下で、ユーザーがアプリケーションにアクセス権を付与済みであれば、codeパラメータ（承認コード）がredirect_uriに追加される。
+	get '/oauth' do
+		oauth = Lodqa::Oauth.new params[:code]
+
+		# 取得したリフレッシュトークンとメールアドレスをセッション情報として保持する
+		session[:refresh_token] = oauth.refresh_token
+		session[:email] = oauth.email
+
+		if session[:mode_before_login] == 'simple'
+			redirect '/'
+		else
+			redirect '/grapheditor'
+		end
+	end
+
+	get '/simple/logout' do
+		session[:email] = nil
+
+		response_code = Lodqa::Oauth.token_revoke session[:refresh_token]
+		session[:refresh_token] = nil if response_code == '200'
+
+		set_query_instance_variable
+
+		applicants = applicants_dataset(params[:target])
+		@sample_queries = sample_queries_for applicants, params
+
+		@config = dataset_config_of params[:target] if present_in? params, :target
+
+		redirect back
+	end
+
+	get '/expert/login' do
+		session[:mode_before_login] = 'expert'
+		redirect Lodqa::Oauth::URL_AUTH
+	end
+
+	get '/expert/logout' do
+		session[:email] = nil
+
+		response_code = Lodqa::Oauth.token_revoke session[:refresh_token]
+		session[:refresh_token] = nil if response_code == '200'
+
+		set_query_instance_variable
+
+		# Set a parameter of candidates of the target
 		@targets = get_targets
 
-		@query  = params['query'] unless params['query'].nil?
-		@target = params['target'] unless params['target'].nil?
+		# Set a parameter of the target
+		@target = params['target'] || @targets.first
+		@endpoint_url = dataset_config_of(@target)[:endpoint_url]
+		@need_proxy = @target == 'biogateway'
 
 		if @query
-			parser_url = @config["parser_url"]
-			g = Lodqa::Graphicator.new(parser_url)
-			g.parse(@query)
-			@parse_rendering = g.get_rendering
-			@pgp = g.get_pgp
+			@pgp = Lodqa::PGPFactory.create parser_url, params['query']
 		end
 
-		erb :index
+		redirect back
+	end
+
+	post '/template.json' do
+		begin
+			# Change value to Logger::DEBUG to log for debugging.
+			Logger::Logger.level = Logger::INFO
+
+			set_query_instance_variable
+
+			string = params['string']
+			language = params['language'] || 'en'
+
+			raise ArgumentError, "The parameter 'string' is missing." unless string
+			raise ArgumentError, "Currently only queries in English is accepted." unless language == 'en'
+
+			template = Lodqa::Graphicator.new(parser_url).parse(string).template
+			template = [template]
+
+			headers 'Content-Type' => 'application/json'
+			body template.to_json
+		end
+	end
+
+	get '/dialogs' do
+		# Get dialogs for email from the LODQA_BS
+		begin
+			response = RestClient.get "#{ENV['LODQA_BS']}/user_histories/#{session[:email]}"
+			@dialogs = JSON.parse(response.body)
+		rescue Errno::ECONNREFUSED, Net::OpenTimeout, SocketError => e
+			Logger::Logger.error e
+		end
+
+		erb :dialogs if response.code == 200
+	end
+
+	get '/searches/:search_id' do
+		begin
+			response = RestClient.get "#{ENV['LODQA_BS']}/searches/#{params['search_id']}"
+			@search = JSON.parse(response.body)
+		rescue Errno::ECONNREFUSED, Net::OpenTimeout, SocketError => e
+			Logger::Logger.error e
+		end
+
+		erb :search if response.code == 200
+	end
+
+	get '/answer' do
+		if params['search_id']
+			# Get query from the LODQA_BS
+			begin
+				response = RestClient.get "#{ENV['LODQA_BS']}/searches/#{params['search_id']}"
+				@query = JSON.parse(response.body)['query']
+			rescue Errno::ECONNREFUSED, Net::OpenTimeout, SocketError => e
+				Logger::Logger.error e
+			end
+		else
+			set_query_instance_variable
+		end
+
+		@target = params['target'] if present_in? params, :target
+
+		applicants = applicants_dataset(params[:target])
+		if applicants.length > 0
+			erb :answer
+		else
+			response.status = 404
+			body 'No dataset found'
+		end
+	end
+
+	get '/grapheditor' do
+		logger.info "access /grapheditor"
+		set_query_instance_variable
+
+		# Set a parameter of candidates of the target
+		@targets = get_targets
+
+		# Set a parameter of the target
+		@target = params['target'] || @targets.first
+		@endpoint_url = dataset_config_of(@target)[:endpoint_url]
+		@need_proxy = @target == 'biogateway'
+
+		if @query
+			@pgp = Lodqa::PGPFactory.create parser_url, params['query']
+		end
+
+		erb :grapheditor
 	end
 
 	# Command for test: curl -H "content-type:application/json" -d '{"keywords":["drug", "genes"]} http://localhost:9292/termfinder'
 	post '/termfinder' do
-		config = get_config(params)
+		begin
+			tf = Term::Finder.new params[:dictionary_url]
+			keywords = params[:'keywords']
+			mappings = tf.find keywords
 
-		tf = Lodqa::TermFinder.new(config['dictionary_url'])
-
-		keywords = params['keywords']
-		mappings = tf.find(keywords)
-
-		headers \
-			"Access-Control-Allow-Origin" => "*"
-		content_type :json
-		mappings.to_json
+			headers \
+				"Access-Control-Allow-Origin" => "*"
+			content_type :json
+			mappings.to_json
+		rescue Term::FindError
+			status 502
+		end
 	end
 
 	options '/termfinder' do
@@ -81,56 +235,212 @@ class LodqaWS < Sinatra::Base
 			"Access-Control-Allow-Headers" => "Content-Type"
 	end
 
-	get '/solutions' do
-		config = get_config(params)
-		query = params['query']
+	# Websocket only!
+	get '/show_progress' do
+		return [400, 'Please use websocket'] unless Faye::WebSocket.websocket?(env)
+		return [400] unless present_in? params, :search_id # serach id is requeired
 
-		if !request.websocket?
-			erb :solutions
-		else
-			request.websocket do |ws|
-				proc_anchored_pgp = Proc.new do |anchored_pgp|
-					ws_send(EM, ws, :anchored_pgp, anchored_pgp)
-				end
+		# Change value to Logger::DEBUG to log for debugging.
+		Logger::Logger.level =  Logger::INFO
 
-				proc_sparql = Proc.new do |sparql|
-					ws_send(EM, ws, :sparql, sparql)
-				end
+		ws = Faye::WebSocket.new(env)
+		request_id = Logger::Logger.generate_request_id
 
-				proc_solution = Proc.new do |solution|
-					ws_send(EM, ws, :solution, solution.to_h)
-				end
+		show_progress_in_lodqa_bs ws, request_id, params[:search_id]
 
-				ws.onmessage do |data|
-					begin
-						json = JSON.parse(data)
-						lodqa = Lodqa::Lodqa.new(config['endpoint_url'], {:max_hop => config['max_hop'], :ignore_predicates => config['ignore_predicates'], :sortal_predicates => config['sortal_predicates']})
+		return ws.rack_response
+	end
 
-						lodqa.pgp = json['pgp'].symbolize_keys
-						lodqa.mappings = json['mappings']
-						# lodqa.parse(query, config['parser_url'])
+	# Websocket only!
+	get '/register_query' do
+		return [400, 'Please use websocket'] unless Faye::WebSocket.websocket?(env)
+		return [400] unless present_in? params, :query # query is requeired
 
-						EM.defer do
-							ws.send("start")
-							lodqa.each_anchored_pgp_and_sparql_and_solution(proc_anchored_pgp, proc_sparql, proc_solution)
-							ws.close_connection
-						end
-					rescue JSON::ParserError => e
-						p e.message
-					end
-				end
+		# Change value to Logger::DEBUG to log for debugging.
+		Logger::Logger.level =  Logger::INFO
+
+		ws = Faye::WebSocket.new(env)
+
+		request_id = Logger::Logger.generate_request_id
+		applicants = applicants_dataset params[:target]
+
+		register_query ws, request_id, parser_url, applicants, params['read_timeout'], params['sparql_limit'], params['answer_limit'], params['query'], params[:target], session[:email] || nil
+
+		return ws.rack_response
+	end
+
+	post '/requests/:request_id/simple/events' do
+		# The params depends on thread variables.
+		request_id = params[:request_id]
+
+		ws = Lodqa::BSClient.socket_for request_id
+		params[:events]
+			.map do |e|
+				e['event'] = "simple:#{e['event']}"
+				e
 			end
+			.each { | e | ws.send e.to_json } if ws
+
+		[200]
+	end
+
+	post '/requests/:request_id/expert/events' do
+		# The params depends on thread variables.
+		request_id = params[:request_id]
+
+		ws = Lodqa::BSClient.socket_for request_id
+
+		params[:events]
+			.select { |item| item['event'] == 'solutions' || item['event'] == 'anchored_pgp' }
+			.map do |e|
+				e_copy = e.dup
+				e_copy['event'] = "expert:#{e_copy['event'].gsub('solutions', 'solution')}"
+				e_copy['sparql'] = e_copy['sparql']['query'] if e_copy['sparql']
+				e_copy
+			end
+			.each { | e | ws.send e.to_json } if ws
+
+		sparql_numbers_max = events_sparql_numbers_max(params[:events])
+		if ws && Lodqa::SparqlsCount.get_sparql_count(request_id) == sparql_numbers_max
+			Lodqa::SparqlsCount.delete_sparql_count(request_id)
+			ws.close
 		end
+		[200]
+	end
+
+	# Dummy API for a callback URL for LODQA BS
+	post '/requests/:request_id/black_hall' do
+		[200]
+	end
+
+	get '/solutions' do
+		return [400, 'Please use websocket'] unless Faye::WebSocket.websocket?(env)
+		return [400, 'target parameter is required'] unless present_in? params, :target
+
+		# Change value to Logger::DEBUG to log for debugging.
+		Logger::Logger.level = Logger::INFO
+
+		begin
+			request_id = Logger::Logger.generate_request_id
+			ws = Faye::WebSocket.new(env)
+
+			ws.on :message do |event|
+				Logger::Logger.request_id = request_id
+				json = JSON.parse(event.data, {:symbolize_names => true})
+
+				pgp = json[:pgp]
+				mappings = json[:mappings]
+
+				start_and_sparql_count ws, params[:target], params[:read_timeout], params[:sparql_limit], params[:answer_limit], pgp, mappings, request_id
+				register_pgp_and_mappings ws, params[:target], params[:read_timeout], params[:sparql_limit], params[:answer_limit], pgp, mappings, request_id, session[:email]
+			end
+
+			ws.rack_response
+		rescue => e
+			Logger::Logger.error e, request: request.env
+			[500, e.message]
+		end
+	end
+
+	# Comman for test: curl 'http://localhost:9292/proxy?endpoint=http://www.semantic-systems-biology.org/biogateway/endpoint&query=select%20%3Flabel%20where%20%7B%20%3Chttp%3A%2F%2Fpurl.obolibrary.org%2Fobo%2Fvario%23associated_with%3E%20%20rdfs%3Alabel%20%3Flabel%20%7D'
+	get '/proxy' do
+		endpoint = params['endpoint']
+		query = params['query']
+		begin
+			open("#{endpoint}?query=#{CGI.escape(query)}", 'accept' => 'application/json') {|f|
+				content_type :json
+			  f.string
+			}
+		rescue OpenURI::HTTPError
+			status 502
+		end
+	end
+
+	not_found do
+		"unknown path.\n"
+	end
+
+	error do
+	  env['sinatra.error'].message + "\n"
 	end
 
 	private
 
-	def ws_send(eventMachine, websocket, key, value)
-		eventMachine.add_timer(1){websocket.send({key => value}.to_json)}
+	def events_sparql_numbers_max events
+		sparql_numbers = events
+			.select { |item| item['event'] == 'solutions' }
+			.map do |e|
+				e['sparql']['number']
+			end
+		sparql_numbers.max
+	end
+
+	def show_progress_in_lodqa_bs ws, request_id, search_id
+		ws.on :open do
+			url = "#{ENV['LODQA_BS']}/searches/#{search_id}/subscriptions"
+			Lodqa::BSClient.subscribe ws, request_id, url, 'simple'
+		end
+	end
+
+	def register_query ws, request_id, parser_url, applicants, read_timeout, sparql_limit, answer_limit, query, target, user_id
+		ws.on :open do
+			Logger::Logger.request_id = request_id
+			res = Lodqa::BSClient.register_query ws, request_id, query, read_timeout, sparql_limit, answer_limit, target, user_id
+			next unless res
+
+			data = JSON.parse res
+			subscribe_url = data['subscribe_url']
+			Lodqa::BSClient.subscribe ws, request_id, subscribe_url, 'simple'
+		end
+	end
+
+	def register_pgp_and_mappings ws, target, read_timeout, sparql_limit, answer_limit, pgp, mappings, request_id, user_id
+		res = Lodqa::BSClient.register_pgp_and_mappings ws, request_id, pgp, mappings, read_timeout, sparql_limit, answer_limit, target, user_id
+
+		data = JSON.parse res
+		subscribe_url = data['subscribe_url']
+		Lodqa::BSClient.subscribe ws, request_id, subscribe_url, 'expert'
+	end
+
+	def start_and_sparql_count ws, target, read_timeout, sparql_limit, answer_limit, pgp, mappings, request_id
+		config = dataset_config_of target
+
+		channel = Lodqa::SourceChannel.new ws, config[:name]
+		sparqls_count = Lodqa::BSClient.sparqls_count ws,
+											pgp,
+											mappings,
+											config[:endpoint_url],
+											{ read_timeout: read_timeout&.to_i },
+											config[:graph_uri],
+											{
+												max_hop: config[:max_hop], ignore_predicates: config[:ignore_predicates],
+												sortal_predicates: config[:sortal_predicates],
+												sparql_limit: sparql_limit&.to_i, answer_limit: answer_limit&.to_i
+											}
+
+		Lodqa::SparqlsCount.set_sparql_count(request_id, sparqls_count)
+
+		Logger::Async.defer do
+			begin
+				channel.start
+				channel.send :sparql_count, { count: sparqls_count }
+			rescue => e
+				Logger::Logger.error e, pgp: pgp, mappings: mappings
+				channel.error e
+			end
+		end
+	end
+
+	def present_in? hash, name
+		present? hash[name]
+	end
+
+	def set_query_instance_variable
+		@query  = params['query'] unless params['query'].nil?
 	end
 
 	def get_targets
-		response = RestClient.get settings.target_db + '.json'
+		response = RestClient.get settings.target_db + '/names.json'
 		if response.code == 200
 			(JSON.parse response).delete_if{|t| t["publicity"] == false}
 		else
@@ -138,31 +448,54 @@ class LodqaWS < Sinatra::Base
 		end
 	end
 
-	def get_config(params)
-		# default configuration
-		config_file = settings.root + '/config/default-setting.json'
-		config = JSON.parse File.read(config_file) if File.file?(config_file)
-		config = {} if config.nil?
+	def dataset_config_of(target)
+		Lodqa::Configuration.for_target "#{settings.target_db}/#{target}.json"
+	end
 
-		# target name passed through params
-		unless params['target'].nil?
-			target_url = settings.target_db + '/' + params['target'] + '.json'
-			begin
-				config_add = RestClient.get target_url do |response, request, result|
-		      case response.code
-		      	when 200 then JSON.parse response
-		      	else raise IOError, "invalid target"
-		      end
-	    	end
-	    rescue
-	    	raise IOError, "invalid target"
-	    end
+	def applicants_dataset(target)
+		if present? target
+			[dataset_config_of(target)]
+		else
+			Lodqa::Sources.applicants_from "#{settings.target_db}.json"
+		end.map.with_index(1) { |d, n| d.merge number: n }
+	end
 
-	    config.merge! config_add unless config_add.nil?
-	  end
+	def sample_queries_for(applicants, params)
+		applicant_queries = applicants
+			.map do |a|
+				a[:sample_queries].map do |sample_query|
+					# Create url for a sample_query.
+					uri = URI("/")
+					queries = {
+						query: sample_query
+					}
 
-	  config['dictionary_url']    = params['dictionary_url']    unless params['dictionary_url'].nil? || params['dictionary_url'].strip.empty?
+					# Set parameters if exists
+					queries[:target] = params[:target] if params[:target]
+					queries[:read_timeout] = @read_timeout
 
-	  config
+					uri.query = URI.encode_www_form(queries)
+
+					{
+						url: uri.to_s,
+						sample_query: sample_query
+					}
+				end
+			end
+
+		applicant_queries.first.zip(*applicant_queries.drop(1))
+			.flatten
+			.compact
+			.slice(0, 15)
+	end
+
+	# The URL of parser service of natural language.
+	# Get value from the `config/default-setting.json`.
+	def parser_url
+	  Lodqa::Configuration.default(settings.root)[:parser_url]
+	end
+
+	def present? value
+		value && !value.strip.empty?
 	end
 end

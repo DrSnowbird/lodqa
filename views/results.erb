@@ -1,7 +1,9 @@
-<% if @parse_rendering %>
-	<h1>Parsing result (by <a href="http://kmcs.nii.ac.jp/enju/">Enju</a>)</h1>
-	<div id="lodqa-parse_rendering"><%= @parse_rendering %></div>
-<% else %>
-	<h1>Results</h1>
-	<p>None</p>
-<% end %>
+<h1>Results</h1>
+<div id="progress-bar">
+  <div class="sparlq-progressbar"></div>
+  <div class="detail-progressbar"></div>
+</div>
+<div id="lodqa-results"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.34.0/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.34.0/mode/sparql/sparql.min.js"></script>

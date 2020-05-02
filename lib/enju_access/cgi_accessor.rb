@@ -3,6 +3,7 @@
 # It takes a plain-English sentence as input and returns parsing results by accessing an Enju cgi server.
 #
 require 'rest-client'
+require 'enju_access/enju_error'
 require 'enju_access/graph'
 
 module EnjuAccess; end unless defined? EnjuAccess
@@ -13,28 +14,28 @@ class EnjuAccess::CGIAccessor
 
   # Noun-chunk elements
   # (Note that PRP is not included. For dialog analysis however PRP (personal pronoun) would need to be included.)
-  NC_CAT      = ["NN", "NNP", "CD", "FW", "JJ"]
+  NC_CAT      = ["NN", "NNP", "CD", "FW", "JJ", "WP"]
 
   # Noun-chunk elements that may appear at the head position
-  NC_HEAD_CAT = ["NN", "NNP", "CD", "FW"]
+  NC_HEAD_CAT = ["NN", "NNP", "CD", "FW", "WP"]
 
   # wh-pronoun and wh-determiner
   WH_CAT      = ["WP", "WDT"]
 
   # It initializes an instance of RestClient::Resource to connect to an Enju cgi server
-  def initialize (enju_url)
+  def initialize(enju_url)
     @enju = RestClient::Resource.new enju_url
-    raise "An instance of RestClient::Resource has to be passed as the first argument." unless @enju.instance_of? RestClient::Resource
+    raise EnjuAccess::EnjuError, "The URL of a web service of enju has to be passed as the first argument." unless @enju.instance_of? RestClient::Resource
   end
 
   # It takes a plain-English sentence as input, and
   # returns a hash that represent various aspects
   # of the PAS and syntactic structure of the sentence.
-  def parse (sentence)
+  def parse(sentence)
     tokens, root     = get_parse(sentence)
     base_noun_chunks = get_base_noun_chunks(tokens)
-    focus            = get_focus(tokens, base_noun_chunks)
     relations        = get_relations(tokens, base_noun_chunks)
+    focus            = get_focus(tokens, base_noun_chunks, relations)
 
     {
       :tokens => tokens,  # The array of token parses
@@ -48,23 +49,24 @@ class EnjuAccess::CGIAccessor
   private
 
   # It populates the instance variables, tokens and root
-  def get_parse (sentence)
+  def get_parse(sentence)
     return [[], nil] if sentence.nil? || sentence.strip.empty?
     sentence = sentence.strip
 
     response = @enju.get :params => {:sentence=>sentence, :format=>'conll'}
     case response.code
     when 200             # 200 means success
-      raise "Empty input." if response =~/^Empty line/
+      raise EnjuAccess::EnjuError, "Empty input." if response.body =~/^Empty line/
+      raise EnjuAccess::EnjuError, 'Enju CGI server returns html instead of tsv' if response.headers[:content_type] === 'text/html'
 
       tokens = []
 
       # response is a parsing result in CONLL format.
-      response.split(/\r?\n/).each_with_index do |t, i|  # for each token analysis
+      response.body.split(/\r?\n/).each_with_index do |t, i|  # for each token analysis
         dat = t.split(/\t/, 7)
         token = Hash.new
         token[:idx]  = i - 1   # use 0-oriented index
-        token[:lex]  = dat[1]
+        token[:lex]  = dat[1].force_encoding('UTF-8')
         token[:base] = dat[2]
         token[:pos]  = dat[3]
         token[:cat]  = dat[4]
@@ -86,32 +88,37 @@ class EnjuAccess::CGIAccessor
 
       [tokens, root]
     else
-      raise "Enju CGI server dose not respond."
+      raise EnjuAccess::EnjuError, "Enju CGI server dose not respond."
     end
   end
 
 
   # It finds base noun chunks from the category pattern.
   # It assumes that the last word of a BNC is its head.
-  def get_base_noun_chunks (tokens)
+  def get_base_noun_chunks(tokens)
     base_noun_chunks = []
-    beg = -1    ## the index of the begining token of the base noun chunk
-    tokens.each do |t|
-      beg = t[:idx] if beg < 0 && NC_CAT.include?(t[:cat])
-      beg = -1 unless NC_CAT.include?(t[:cat])
-      if beg >= 0
-        if t[:args] == nil && NC_HEAD_CAT.include?(t[:cat])
-          base_noun_chunks << {:head => t[:idx], :beg => beg, :end => t[:idx]}
-          beg = -1
-        end
+    beg, head = -1, -1
+    tokens.each_with_index do |t, i|
+      beg  = t[:idx] if beg < 0 && NC_CAT.include?(t[:cat])
+      head = t[:idx] if beg >= 0 && NC_HEAD_CAT.include?(t[:cat]) && t[:args] == nil
+      if beg >= 0 && !NC_CAT.include?(t[:cat])
+        head = t[:idx] if head < 0
+        base_noun_chunks << {:head => head, :beg => beg, :end => tokens[i-1][:idx]}
+        beg, head = -1, -1
       end
     end
+
+    if beg >= 0
+      raise RuntimeError, "Strange parse!" if head < 0
+      base_noun_chunks << {:head => head, :beg => beg, :end => tokens.last[:idx]}
+    end
+
     base_noun_chunks
   end
 
 
   # It finds the shortest path between the head word of any two base noun chunks that are not interfered by other base noun chunks.
-  def get_relations (tokens, base_noun_chunks)
+  def get_relations(tokens, base_noun_chunks)
     graph = Graph.new
     tokens.each do |t|
       if t[:args]
@@ -134,41 +141,46 @@ class EnjuAccess::CGIAccessor
 
 
   # It returns the index of the "focus word."  For example, for the input
-  # 
+  #
   # What devices are used to treat heart failure?
   #
-  # ...it will return 1 (devides).
-  def get_focus (tokens, base_noun_chunks)
+  # ...it will return 1 (devices).
+  def get_focus(tokens, base_noun_chunks, relations)
     # find the wh-word
-    # assumption: one query has one wh-word
-    wh = -1
-    tokens.each do |t|
-      if WH_CAT.include?(t[:cat])
-        wh = t[:idx]
-        break
-      end
-    end
+    # assumption: one query has only one wh-word
+    wh_token = tokens.find{|t| WH_CAT.include?(t[:cat])}
 
-    focus = if wh > -1
-              if tokens[wh][:args]
-                tokens[wh][:args][0][1]
-              else
-                wh
-              end
-            elsif base_noun_chunks.nil? || base_noun_chunks.empty?
-              nil
-            else
-              base_noun_chunks[0][:head]
-            end
+    if wh_token
+      if wh_token[:args]
+        wh_token[:args][0][1]
+      else
+        wh_rel = relations.find{|r| r[0] == wh_token[:idx]}
+        if wh_rel && tokens[wh_rel[1][0]][:base] == 'be'
+          # if apposition
+          # remove the wh_token from BNCs
+          base_noun_chunks.delete_at(0)
+          # remove the relation from/to the wh_token
+          relations.delete(wh_rel)
+          # and return the apposition
+          wh_rel[2]
+        else
+          wh_token[:idx]
+        end
+      end
+    elsif base_noun_chunks.nil? || base_noun_chunks.empty?
+      0
+    else
+      base_noun_chunks[0][:head]
+    end
   end
 
 end
 
 # From the Ruby documentation:
-# __FILE__ is the magic variable that contains the name of the current file. 
-# $0 is the name of the file used to start the program. This check says “If 
-# this is the main file being used…” This allows a file to be used as a 
-# library, and not to execute code in that context, but if the file is 
+# __FILE__ is the magic variable that contains the name of the current file.
+# $0 is the name of the file used to start the program. This check says “If
+# this is the main file being used…” This allows a file to be used as a
+# library, and not to execute code in that context, but if the file is
 # being used as an executable, then execute that code.
 
 if __FILE__ == $0

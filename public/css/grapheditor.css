@@ -1,0 +1,141 @@
+.frame {
+    background-color: #ffffff;
+    border-style: solid;
+    border-width: 2px;
+    box-shadow: 4px 4px 4px #888888;
+    padding: 5px;
+    position: relative;
+}
+
+.dashboard {
+    left: 0px;
+    max-height: 97%;
+    overflow: auto;
+    position: fixed;
+    top: 0px;
+    width: 642px;
+}
+
+.dashboard--back {
+    z-index: -1;
+}
+
+#header {
+    align-items: baseline;
+}
+
+#logo-box {
+    width: 190px;
+}
+
+.target-display {
+    font-size: 22px;
+    width: 243px;
+}
+
+#target-box {
+    margin-top: 2em;
+}
+
+.query-region {
+    width: 530px
+}
+
+.examples {
+    left: 7px;
+    padding-left: 15px;
+    position: fixed;
+    top: 135px;
+    width: 533px;
+    z-index: 1;
+}
+
+.examples--hidden {
+    display: none;
+}
+
+.results {
+    position: absolute;
+    right: 4px;
+    width: 740px;
+    z-index: 2;
+}
+
+.results--hidden {
+    display: none;
+}
+
+.results--back {
+    z-index: -1;
+}
+
+.jsPlumb-container {
+    border: 1px solid green;
+    margin: 5px 0;
+}
+
+.table {
+    margin: 2px 0;
+}
+
+#lodqa-messages {
+    position: fixed;
+    top: 4px;
+    right: 4px;
+    height: 30px;
+    text-align: center;
+    z-index: 2;
+}
+
+.lodqa-message {
+    margin: auto;
+    padding: 1px;
+    border: 2px solid red;
+    border-radius: 5px;
+    background-color: #ffff66;
+    text-align: center;
+}
+
+/* search-controller */
+
+.serach-controller {
+    align-items: baseline;
+    display: flex;
+    justify-content: space-between;
+}
+
+.serach-controller [type="number"]{
+    width: 3em;
+}
+
+/* progressbar */
+.sparlq-progressbar__progress {
+    margin-left: 2px;
+    width: 600px;
+}
+
+.sparlq-progressbar__percentage {
+    display: inline-block;
+    margin-right: 0.1em;
+    text-align: right;
+    vertical-align: top;
+    width: 3em;
+}
+
+.sparlq-progressbar__show-detail-checkbox {
+    vertical-align: super;
+}
+
+.detail-progressbar__sparql-list {
+    width: 694px;
+}
+
+.detail-progressbar__sparql {
+    width: 3.899em;
+}
+
+.detail-progressbar__sparql--has-answer .detail-progressbar__number-of-answers {
+    color: #222;
+    padding: 0;
+    width: auto;
+}
